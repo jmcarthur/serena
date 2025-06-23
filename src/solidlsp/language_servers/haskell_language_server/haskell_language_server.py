@@ -2,12 +2,15 @@ import json
 import logging
 import os
 import pathlib
-import shutil
-import subprocess
 import threading
 
 from overrides import override
 
+from multilspy.language_servers.haskell.haskell_utils import (
+    check_hls_dependency,
+    get_hls_version,
+    is_haskell_ignored_dirname,
+)
 from multilspy.lsp_protocol_handler.lsp_types import InitializeParams
 from multilspy.lsp_protocol_handler.server import ProcessLaunchInfo
 from multilspy.multilspy_config import MultilspyConfig
@@ -22,35 +25,8 @@ class HaskellLanguageServer(SolidLanguageServer):
     
     @override
     def is_ignored_dirname(self, dirname: str) -> bool:
-        # For Haskell projects, we should ignore:
-        # - .stack-work: Stack build artifacts
-        # - dist-newstyle: Cabal build artifacts
-        # - .hie-bios: HLS cache/session files
-        # - .cabal-sandbox: Old-style Cabal sandbox
-        haskell_ignore_dirs = [".stack-work", "dist-newstyle", ".hie-bios", ".cabal-sandbox"]
-        return super().is_ignored_dirname(dirname) or dirname in haskell_ignore_dirs
+        return super().is_ignored_dirname(dirname) or is_haskell_ignored_dirname(dirname)
 
-    @staticmethod
-    def _get_ghc_version():
-        """Get the installed GHC version or None if not found."""
-        try:
-            result = subprocess.run(['ghc', '--version'], capture_output=True, text=True)
-            if result.returncode == 0:
-                return result.stdout.strip()
-        except FileNotFoundError:
-            return None
-        return None
-
-    @staticmethod
-    def _get_hls_version():
-        """Get the installed haskell-language-server version or None if not found."""
-        try:
-            result = subprocess.run(['haskell-language-server-wrapper', '--version'], capture_output=True, text=True)
-            if result.returncode == 0:
-                return result.stdout.strip()
-        except FileNotFoundError:
-            return None
-        return None
 
     @classmethod
     def setup_runtime_dependency(cls):
@@ -58,31 +34,7 @@ class HaskellLanguageServer(SolidLanguageServer):
         Check if required Haskell runtime dependencies are available.
         Raises RuntimeError with helpful message if dependencies are missing.
         """
-        # Check for haskell-language-server-wrapper
-        if not shutil.which("haskell-language-server-wrapper"):
-            ghc_version = cls._get_ghc_version()
-            if ghc_version:
-                raise RuntimeError(
-                    f"Found {ghc_version} but haskell-language-server-wrapper is not installed.\n"
-                    "Please install haskell-language-server using one of these methods:\n"
-                    "  - ghcup: ghcup install hls\n"
-                    "  - Stack: stack install haskell-language-server\n"
-                    "  - Download from: https://github.com/haskell/haskell-language-server/releases\n\n"
-                    "After installation, make sure haskell-language-server-wrapper is in your PATH."
-                )
-            else:
-                raise RuntimeError(
-                    "haskell-language-server-wrapper not found in PATH.\n"
-                    "Please install haskell-language-server using one of these methods:\n\n"
-                    "Option 1 - ghcup (recommended):\n"
-                    "  curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh\n"
-                    "  ghcup install ghc\n"
-                    "  ghcup install hls\n\n"
-                    "Option 2 - Download from GitHub releases:\n"
-                    "  https://github.com/haskell/haskell-language-server/releases\n\n"
-                    "Make sure haskell-language-server-wrapper is in your PATH after installation."
-                )
-        
+        check_hls_dependency()
         return True
 
     def __init__(self, config: MultilspyConfig, logger: MultilspyLogger, repository_root_path: str):
@@ -96,12 +48,18 @@ class HaskellLanguageServer(SolidLanguageServer):
             "haskell",
         )
         self.request_id = 0
+        self.server_ready = threading.Event()
+        
+        # Log version information if available
+        hls_version = get_hls_version()
+        if hls_version:
+            logger.log(f"Found HLS: {hls_version}", logging.INFO)
 
     def _get_initialize_params(self, repository_absolute_path: str) -> InitializeParams:
         """
         Returns the initialize params for the Haskell Language Server.
         """
-        with open(os.path.join(os.path.dirname(__file__), "initialize_params.json"), "r", encoding="utf-8") as f:
+        with open(os.path.join(os.path.dirname(__file__), "initialize_params.json"), encoding="utf-8") as f:
             d = json.load(f)
 
         del d["_description"]
@@ -147,6 +105,8 @@ class HaskellLanguageServer(SolidLanguageServer):
             if kind == "end":
                 # Any "end" progress means HLS has finished some initialization stage
                 self.logger.log(f"HLS progress ended: {title or 'unknown'}", logging.DEBUG)
+                # Consider the server ready when we get an end progress notification
+                self.server_ready.set()
 
         def do_nothing(params):
             return
@@ -189,8 +149,11 @@ class HaskellLanguageServer(SolidLanguageServer):
         
         self.completions_available.set()
 
-        # Don't wait for HLS to be "ready" - LSP is designed to work incrementally
-        # Just give it a moment to start up
-        self.logger.log("HLS started, giving it time to initialize...", logging.INFO)
-        import time
-        time.sleep(2.0)
+        # Wait for HLS to be ready with proper timeout
+        self.logger.log("Waiting for HLS to complete initial initialization...", logging.INFO)
+        if self.server_ready.wait(timeout=60.0):
+            self.logger.log("HLS server is ready", logging.INFO)
+        else:
+            self.logger.log("Timeout waiting for HLS to become ready, proceeding anyway", logging.WARNING)
+            # Set ready anyway after timeout
+            self.server_ready.set()

@@ -5,6 +5,7 @@ import pytest
 from multilspy import SyncLanguageServer
 from multilspy.multilspy_config import Language
 from multilspy.multilspy_utils import SymbolUtils
+from serena.text_utils import LineType
 
 
 @pytest.mark.haskell
@@ -92,3 +93,75 @@ class TestHaskellLanguageServer:
         assert hover_info is not None, "Hover should return information for DemoData"
         hover_text = str(hover_info)
         assert "DemoData" in hover_text, "Hover should contain type name"
+
+    def test_retrieve_content_around_line(self, language_server: SyncLanguageServer) -> None:
+        """Test retrieve_content_around_line functionality with various scenarios."""
+        file_path = os.path.join("src", "Lib.hs")
+
+        # Scenario 1: Just a single line (line 14 has someFunc definition - 0-indexed)
+        line_14 = language_server.retrieve_content_around_line(file_path, 14)
+        assert len(line_14.lines) == 1
+        assert "someFunc ::" in line_14.lines[0].line_content
+        assert line_14.lines[0].line_number == 14
+        assert line_14.lines[0].match_type == LineType.MATCH
+
+        # Scenario 2: Context above and below 
+        with_context = language_server.retrieve_content_around_line(file_path, 8, 2, 2)
+        assert len(with_context.lines) == 5
+        # Check that DemoData type definition is in the matched line
+        assert "data DemoData" in with_context.matched_lines[0].line_content
+        assert with_context.num_matched_lines == 1
+        # Check match types
+        assert with_context.lines[0].match_type == LineType.BEFORE_MATCH
+        assert with_context.lines[1].match_type == LineType.BEFORE_MATCH
+        assert with_context.lines[2].match_type == LineType.MATCH
+        assert with_context.lines[3].match_type == LineType.AFTER_MATCH
+        assert with_context.lines[4].match_type == LineType.AFTER_MATCH
+
+        # Scenario 3: Edge case - context at start of file
+        first_line_with_context = language_server.retrieve_content_around_line(file_path, 0, 3, 3)
+        assert first_line_with_context.lines[0].line_number == 0
+        # Check match type for the target line
+        for line in first_line_with_context.lines:
+            if line.line_number == 0:
+                assert line.match_type == LineType.MATCH
+            elif line.line_number < 0:
+                assert line.match_type == LineType.BEFORE_MATCH
+            else:
+                assert line.match_type == LineType.AFTER_MATCH
+
+    def test_search_files_for_pattern(self, language_server: SyncLanguageServer) -> None:
+        """Test search_files_for_pattern with various patterns and glob filters."""
+        # Test 1: Search for function type signatures
+        func_pattern = r"::\s*[^=]+"
+        matches = language_server.search_files_for_pattern(func_pattern)
+        assert len(matches) > 0
+        # Should find multiple function signatures
+        assert len(matches) >= 3
+
+        # Test 2: Search for data type definitions with include glob
+        data_pattern = r"data\s+\w+"
+        matches = language_server.search_files_for_pattern(data_pattern, paths_include_glob="**/Lib.hs")
+        assert len(matches) >= 1  # Should find DemoData in Lib.hs
+        assert matches[0].source_file_path is not None
+        assert "Lib.hs" in matches[0].source_file_path
+
+        # Test 3: Search for function definitions with exclude glob  
+        func_def_pattern = r"\w+\s+::"
+        matches = language_server.search_files_for_pattern(func_def_pattern, paths_exclude_glob="**/Main.hs")
+        assert len(matches) > 0
+        # Should find functions in Lib.hs but not in Main.hs
+        assert all(match.source_file_path is not None and "Main.hs" not in match.source_file_path for match in matches)
+
+        # Test 4: Search for specific function 
+        main_pattern = r"main\s*::"
+        matches = language_server.search_files_for_pattern(main_pattern)
+        assert len(matches) == 1  # Should only find main in Main.hs
+        assert matches[0].source_file_path is not None
+        assert "Main.hs" in matches[0].source_file_path
+
+        # Test 5: Search for imports
+        import_pattern = r"import\s+\w+"
+        matches = language_server.search_files_for_pattern(import_pattern)
+        assert len(matches) >= 1  # Should find imports in Main.hs
+        assert any(match.source_file_path is not None and "Main.hs" in match.source_file_path for match in matches)
