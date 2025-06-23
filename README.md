@@ -71,6 +71,7 @@ With Serena, we provide
      * TypeScript/Javascript
      * PhP
      * Go (need to install go and gopls first)
+     * Haskell (need haskell-language-server-wrapper in PATH)
      * Rust
      * C/C++
      * Java (_Note_: startup is slow, initial startup especially so. There seem to be issues with java on macos)

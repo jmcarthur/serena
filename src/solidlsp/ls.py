@@ -123,6 +123,10 @@ class SolidLanguageServer(ABC):
             from solidlsp.language_servers.intelephense.intelephense import Intelephense
             return Intelephense(config, logger, repository_root_path)
 
+        elif config.code_language == Language.HASKELL:
+            from solidlsp.language_servers.haskell_language_server.haskell_language_server import HaskellLanguageServer
+            return HaskellLanguageServer(config, logger, repository_root_path)
+
         else:
             logger.log(f"Language {config.code_language} is not supported", logging.ERROR)
             raise MultilspyException(f"Language {config.code_language} is not supported")

@@ -1,0 +1,40 @@
+name:                test-repo
+version:             0.1.0.0
+github:              "test/test-repo"
+license:             BSD3
+author:              "Test Author"
+maintainer:          "test@example.com"
+copyright:           "2025 Test Author"
+
+extra-source-files:
+- README.md
+
+description:         Test repository for Haskell language server testing
+
+dependencies:
+- base >= 4.7 && < 5
+
+library:
+  source-dirs: src
+
+executables:
+  test-repo-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - test-repo
+
+tests:
+  test-repo-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - test-repo
