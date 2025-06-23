@@ -193,12 +193,23 @@ class HaskellLanguageServer(LanguageServer):
 
         async def progress_handler(params):
             """Handle $/progress notifications to detect when HLS is ready"""
-            self.logger.log(f"LSP: $/progress: {params}", logging.DEBUG)
+            self.logger.log(f"LSP: $/progress: {params}", logging.INFO)
             
-            # Check if this is the end of initial indexing
-            if "value" in params and "kind" in params["value"]:
-                if params["value"]["kind"] == "end":
-                    # HLS might be ready now
+            # Track progress tokens to understand what HLS is doing
+            token = params.get("token", "")
+            value = params.get("value", {})
+            kind = value.get("kind", "")
+            title = value.get("title", "")
+            message = value.get("message", "")
+            
+            self.logger.log(f"HLS Progress: token={token}, kind={kind}, title={title}, message={message}", logging.INFO)
+            
+            # Look for completion signals
+            # HLS sends progress notifications during startup
+            if kind == "end":
+                # Any "end" progress means HLS has finished some initialization stage
+                if not self.server_ready.is_set():
+                    self.logger.log(f"HLS progress ended: {title or 'unknown'}", logging.INFO)
                     self.server_ready.set()
 
         async def do_nothing(params):
@@ -246,14 +257,17 @@ class HaskellLanguageServer(LanguageServer):
             # Start monitoring stderr for cradle loading (fallback mechanism)
             self._cradle_load_task = asyncio.create_task(self._monitor_stderr_for_cradle())
             
-            # Wait for server to be ready with a timeout
-            self.logger.log("Waiting for HLS to load project cradle...", logging.INFO)
+            # Wait for server to signal some progress completion
+            self.logger.log("Waiting for HLS to initialize...", logging.INFO)
             try:
-                await asyncio.wait_for(self.server_ready.wait(), timeout=180.0)
-                self.logger.log("HLS is ready", logging.INFO)
+                await asyncio.wait_for(self.server_ready.wait(), timeout=60.0)
+                # HLS signals progress completion early, but needs more time for cross-module analysis
+                # Add a delay to ensure it's fully ready
+                self.logger.log("HLS signaled progress completion, waiting for full initialization...", logging.INFO)
+                await asyncio.sleep(10.0)
+                self.logger.log("HLS should be ready now", logging.INFO)
             except asyncio.TimeoutError:
-                self.logger.log("HLS failed to become ready within 180 seconds", logging.ERROR)
-                raise RuntimeError("HLS failed to initialize within 180 seconds. This might be due to a complex project or missing dependencies.")
+                self.logger.log("HLS did not signal any progress within 60 seconds, proceeding anyway", logging.WARNING)
             finally:
                 # Cancel the stderr monitoring task
                 if self._cradle_load_task and not self._cradle_load_task.done():

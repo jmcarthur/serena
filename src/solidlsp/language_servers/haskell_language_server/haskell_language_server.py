@@ -132,12 +132,23 @@ class HaskellLanguageServer(SolidLanguageServer):
 
         def progress_handler(params):
             """Handle $/progress notifications to detect when HLS is ready"""
-            self.logger.log(f"LSP: $/progress: {params}", logging.DEBUG)
+            self.logger.log(f"LSP: $/progress: {params}", logging.INFO)
             
-            # Check if this is the end of initial indexing
-            if "value" in params and "kind" in params["value"]:
-                if params["value"]["kind"] == "end":
-                    # HLS might be ready now
+            # Track progress tokens to understand what HLS is doing
+            token = params.get("token", "")
+            value = params.get("value", {})
+            kind = value.get("kind", "")
+            title = value.get("title", "")
+            message = value.get("message", "")
+            
+            self.logger.log(f"HLS Progress: token={token}, kind={kind}, title={title}, message={message}", logging.INFO)
+            
+            # Look for completion signals
+            # HLS sends progress notifications during startup
+            if kind == "end":
+                # Any "end" progress means HLS has finished some initialization stage
+                if not self.server_ready.is_set():
+                    self.logger.log(f"HLS progress ended: {title or 'unknown'}", logging.INFO)
                     self.server_ready.set()
 
         def do_nothing(params):
@@ -181,10 +192,14 @@ class HaskellLanguageServer(SolidLanguageServer):
         
         self.completions_available.set()
 
-        # For simple test repo, HLS should be ready quickly
-        # In production, we might need more sophisticated readiness detection
-        self.logger.log("Waiting for HLS to be ready...", logging.INFO)
-        if not self.server_ready.wait(timeout=60.0):
-            self.logger.log("HLS did not signal readiness within 60 seconds, proceeding anyway", logging.WARNING)
+        # Wait for HLS to signal some progress completion
+        self.logger.log("Waiting for HLS to initialize...", logging.INFO)
+        if self.server_ready.wait(timeout=60.0):
+            # HLS signals progress completion early, but needs more time for cross-module analysis
+            # Add a delay to ensure it's fully ready
+            self.logger.log("HLS signaled progress completion, waiting for full initialization...", logging.INFO)
+            import time
+            time.sleep(10.0)
+            self.logger.log("HLS should be ready now", logging.INFO)
         else:
-            self.logger.log("HLS is ready", logging.INFO)
+            self.logger.log("HLS did not signal any progress within 60 seconds, proceeding anyway", logging.WARNING)
