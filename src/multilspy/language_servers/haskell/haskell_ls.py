@@ -243,10 +243,26 @@ class HaskellLanguageServer(LanguageServer):
             # Start monitoring stderr for cradle loading (fallback mechanism)
             self._cradle_load_task = asyncio.create_task(self._monitor_stderr_for_cradle())
             
-            # Don't wait for HLS to be "ready" - LSP is designed to work incrementally
-            # Just give it a moment to start up
-            self.logger.log("HLS started, giving it time to initialize...", logging.INFO)
-            await asyncio.sleep(2.0)
+            # Wait for HLS to signal readiness through progress notifications or experimental/serverStatus
+            # HLS can take several minutes for large projects due to cradle loading and dependency compilation
+            self.logger.log("Waiting for HLS to signal readiness (this may take several minutes for large projects)...", logging.INFO)
+            try:
+                # Use a 30-second timeout as a balance between responsiveness and allowing HLS time to start
+                # For very large projects, HLS will continue loading in the background
+                await asyncio.wait_for(self.server_ready.wait(), timeout=30.0)
+                self.logger.log("HLS signaled ready via experimental/serverStatus", logging.INFO)
+            except asyncio.TimeoutError:
+                self.logger.log(
+                    "HLS hasn't signaled readiness after 30s. Proceeding, but HLS may still be loading. "
+                    "Operations may be slow or incomplete until HLS finishes initialization.",
+                    logging.WARNING
+                )
+                # Don't set server_ready here - let HLS signal when it's actually ready
+                # This allows operations to proceed but warns they might fail
+                self.completions_available.set()  # Basic completion might work
+
+            try:
+                yield self
             finally:
                 # Cancel the stderr monitoring task
                 if self._cradle_load_task and not self._cradle_load_task.done():
@@ -255,5 +271,3 @@ class HaskellLanguageServer(LanguageServer):
                         await self._cradle_load_task
                     except asyncio.CancelledError:
                         pass
-
-            yield self

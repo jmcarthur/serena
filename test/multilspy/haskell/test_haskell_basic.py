@@ -14,9 +14,9 @@ class TestHaskellLanguageServer:
     @pytest.fixture(scope="class")
     def language_server(self):
         """Create a language server for the Haskell test repository."""
-        from test.conftest import create_ls
         from pathlib import Path
-        import time
+
+        from test.conftest import create_ls
 
         repo_path = str(Path(__file__).parent.parent.parent / "resources" / "repos" / "haskell" / "test_repo")
         server = create_ls(Language.HASKELL, repo_path)
@@ -24,14 +24,20 @@ class TestHaskellLanguageServer:
         
         # Open the main files to trigger HLS analysis (like an IDE would)
         # This is how LSP is meant to work - files are analyzed when opened
-        with server.open_file(os.path.join("app", "Main.hs")):
-            with server.open_file(os.path.join("src", "Lib.hs")):
-                # Give HLS a moment to process the opened files
-                time.sleep(5)
+        # IMPORTANT: Keep files open during entire test session for HLS
+        main_buffer = server.open_file(os.path.join("app", "Main.hs"))
+        lib_buffer = server.open_file(os.path.join("src", "Lib.hs"))
+        
+        # Enter the contexts to actually open the files
+        main_buffer.__enter__()
+        lib_buffer.__enter__()
         
         try:
             yield server
         finally:
+            # Clean up: exit the file contexts
+            lib_buffer.__exit__(None, None, None)
+            main_buffer.__exit__(None, None, None)
             server.stop()
 
     def test_find_symbol(self, language_server: SyncLanguageServer) -> None:
