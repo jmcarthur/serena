@@ -51,8 +51,8 @@ jobs:
       - name: Install GHC and HLS
         shell: bash
         run: |
-          ghcup install ghc 9.6.7 --set
-          ghcup install hls 2.10.0.0 --set
+          ghcup install ghc recommended --set
+          ghcup install hls recommended --set
       - name: Install uv
         shell: bash
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
