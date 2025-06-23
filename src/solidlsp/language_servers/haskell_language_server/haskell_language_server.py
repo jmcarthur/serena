@@ -95,7 +95,6 @@ class HaskellLanguageServer(SolidLanguageServer):
             ProcessLaunchInfo(cmd="haskell-language-server-wrapper --lsp", cwd=repository_root_path),
             "haskell",
         )
-        self.server_ready = threading.Event()
         self.request_id = 0
 
     def _get_initialize_params(self, repository_absolute_path: str) -> InitializeParams:
@@ -147,9 +146,7 @@ class HaskellLanguageServer(SolidLanguageServer):
             # HLS sends progress notifications during startup
             if kind == "end":
                 # Any "end" progress means HLS has finished some initialization stage
-                if not self.server_ready.is_set():
-                    self.logger.log(f"HLS progress ended: {title or 'unknown'}", logging.INFO)
-                    self.server_ready.set()
+                self.logger.log(f"HLS progress ended: {title or 'unknown'}", logging.DEBUG)
 
         def do_nothing(params):
             return
@@ -192,14 +189,8 @@ class HaskellLanguageServer(SolidLanguageServer):
         
         self.completions_available.set()
 
-        # Wait for HLS to signal some progress completion
-        self.logger.log("Waiting for HLS to initialize...", logging.INFO)
-        if self.server_ready.wait(timeout=60.0):
-            # HLS signals progress completion early, but needs more time for cross-module analysis
-            # Add a delay to ensure it's fully ready
-            self.logger.log("HLS signaled progress completion, waiting for full initialization...", logging.INFO)
-            import time
-            time.sleep(10.0)
-            self.logger.log("HLS should be ready now", logging.INFO)
-        else:
-            self.logger.log("HLS did not signal any progress within 60 seconds, proceeding anyway", logging.WARNING)
+        # Don't wait for HLS to be "ready" - LSP is designed to work incrementally
+        # Just give it a moment to start up
+        self.logger.log("HLS started, giving it time to initialize...", logging.INFO)
+        import time
+        time.sleep(2.0)

@@ -16,10 +16,19 @@ class TestHaskellLanguageServer:
         """Create a language server for the Haskell test repository."""
         from test.conftest import create_ls
         from pathlib import Path
+        import time
 
         repo_path = str(Path(__file__).parent.parent.parent / "resources" / "repos" / "haskell" / "test_repo")
         server = create_ls(Language.HASKELL, repo_path)
         server.start()
+        
+        # Open the main files to trigger HLS analysis (like an IDE would)
+        # This is how LSP is meant to work - files are analyzed when opened
+        with server.open_file(os.path.join("app", "Main.hs")):
+            with server.open_file(os.path.join("src", "Lib.hs")):
+                # Give HLS a moment to process the opened files
+                time.sleep(5)
+        
         try:
             yield server
         finally:
