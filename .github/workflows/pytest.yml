@@ -35,6 +35,24 @@ jobs:
       - name: Install gopls
         shell: bash
         run: go install golang.org/x/tools/gopls@latest
+      # Setup Haskell toolchain using ghcup
+      - name: Install ghcup (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
+          echo "$HOME/.ghcup/bin" >> $GITHUB_PATH
+      - name: Install ghcup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force;[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; Invoke-Command -ScriptBlock ([ScriptBlock]::Create((Invoke-WebRequest https://www.haskell.org/ghcup/sh/bootstrap-haskell.ps1 -UseBasicParsing))) -ArgumentList $false,$true,$true,$false,$false,$false,$false,"C:\ghcup"
+          echo "C:\ghcup\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install GHC and HLS
+        shell: bash
+        run: |
+          ghcup install ghc 9.6.7 --set
+          ghcup install hls 2.10.0.0 --set
       - name: Install uv
         shell: bash
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
