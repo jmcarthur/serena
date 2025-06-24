@@ -45,14 +45,14 @@ class HaskellLanguageServer(LanguageServer):
             logger,
             repository_root_path,
             ProcessLaunchInfo(
-                cmd="haskell-language-server-wrapper",
-                args=["--lsp"],
+                cmd="haskell-language-server-wrapper --lsp",
                 cwd=repository_root_path
             ),
             "haskell",
         )
         self.request_id = 0
         self._cradle_load_task = None
+        self.server_ready = asyncio.Event()
         
         # Log version information if available
         hls_version = get_hls_version()
@@ -142,19 +142,32 @@ class HaskellLanguageServer(LanguageServer):
 
         async def progress_handler(params):
             """Handle $/progress notifications for debugging purposes"""
-            # Just log progress for visibility
             value = params.get("value", {})
             kind = value.get("kind", "")
             title = value.get("title", "")
             self.logger.log(f"HLS progress: {kind} - {title}", logging.DEBUG)
+            
+            # Set the event when HLS signals it has completed an initialization stage
+            if kind == "end":
+                self.logger.log(f"HLS progress ended for '{title}', signaling ready.", logging.INFO)
+                self.server_ready.set()
 
         async def do_nothing(params):
             return
+
+        async def check_experimental_status(params):
+            """
+            Also listen for experimental/serverStatus as a backup signal
+            """
+            if params.get("quiescent") == True:
+                self.logger.log("Received experimental/serverStatus with quiescent=true", logging.INFO)
+                self.server_ready.set()
 
         self.server.on_request("client/registerCapability", register_capability_handler)
         self.server.on_notification("window/logMessage", window_log_message)
         self.server.on_notification("$/progress", progress_handler)
         self.server.on_notification("textDocument/publishDiagnostics", do_nothing)
+        self.server.on_notification("experimental/serverStatus", check_experimental_status)
 
         async with super().start_server():
             self.logger.log("Starting haskell-language-server process", logging.INFO)
@@ -191,7 +204,8 @@ class HaskellLanguageServer(LanguageServer):
             self.completions_available.set()
 
             # Start monitoring stderr for cradle loading (fallback mechanism)
-            self._cradle_load_task = asyncio.create_task(self._monitor_stderr_for_cradle())
+            # NOTE: Disabled stderr monitoring as self.server doesn't have stderr attribute
+            # self._cradle_load_task = asyncio.create_task(self._monitor_stderr_for_cradle())
             
             # Wait for HLS to signal readiness through progress notifications or experimental/serverStatus
             # HLS can take several minutes for large projects due to cradle loading and dependency compilation

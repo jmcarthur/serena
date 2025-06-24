@@ -29,7 +29,7 @@ class HaskellLanguageServer(SolidLanguageServer):
 
 
     @classmethod
-    def setup_runtime_dependency(cls):
+    def setup_runtime_dependencies(cls):
         """
         Check if required Haskell runtime dependencies are available.
         Raises RuntimeError with helpful message if dependencies are missing.
@@ -38,7 +38,7 @@ class HaskellLanguageServer(SolidLanguageServer):
         return True
 
     def __init__(self, config: MultilspyConfig, logger: MultilspyLogger, repository_root_path: str):
-        self.setup_runtime_dependency()
+        self.setup_runtime_dependencies()
         
         super().__init__(
             config,

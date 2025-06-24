@@ -22,17 +22,17 @@ class TestHaskellLanguageServer:
         repo_path = str(Path(__file__).parent.parent.parent / "resources" / "repos" / "haskell" / "test_repo")
         server = create_ls(Language.HASKELL, repo_path)
         server.start()
-        
+
         # Open the main files to trigger HLS analysis (like an IDE would)
         # This is how LSP is meant to work - files are analyzed when opened
         # IMPORTANT: Keep files open during entire test session for HLS
         main_buffer = server.open_file(os.path.join("app", "Main.hs"))
         lib_buffer = server.open_file(os.path.join("src", "Lib.hs"))
-        
+
         # Enter the contexts to actually open the files
         main_buffer.__enter__()
         lib_buffer.__enter__()
-        
+
         try:
             yield server
         finally:
@@ -105,7 +105,7 @@ class TestHaskellLanguageServer:
         assert line_14.lines[0].line_number == 14
         assert line_14.lines[0].match_type == LineType.MATCH
 
-        # Scenario 2: Context above and below 
+        # Scenario 2: Context above and below
         with_context = language_server.retrieve_content_around_line(file_path, 8, 2, 2)
         assert len(with_context.lines) == 5
         # Check that DemoData type definition is in the matched line
@@ -146,14 +146,14 @@ class TestHaskellLanguageServer:
         assert matches[0].source_file_path is not None
         assert "Lib.hs" in matches[0].source_file_path
 
-        # Test 3: Search for function definitions with exclude glob  
+        # Test 3: Search for function definitions with exclude glob
         func_def_pattern = r"\w+\s+::"
         matches = language_server.search_files_for_pattern(func_def_pattern, paths_exclude_glob="**/Main.hs")
         assert len(matches) > 0
         # Should find functions in Lib.hs but not in Main.hs
         assert all(match.source_file_path is not None and "Main.hs" not in match.source_file_path for match in matches)
 
-        # Test 4: Search for specific function 
+        # Test 4: Search for specific function
         main_pattern = r"main\s*::"
         matches = language_server.search_files_for_pattern(main_pattern)
         assert len(matches) == 1  # Should only find main in Main.hs
