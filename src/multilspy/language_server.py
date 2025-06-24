@@ -178,6 +178,10 @@ class LanguageServer:
             from multilspy.language_servers.intelephense.intelephense import Intelephense
 
             return Intelephense(config, logger, repository_root_path)
+        elif config.code_language == Language.HASKELL:
+            from multilspy.language_servers.haskell.haskell_ls import HaskellLanguageServer
+
+            return HaskellLanguageServer(config, logger, repository_root_path)
         else:
             logger.log(f"Language {config.code_language} is not supported", logging.ERROR)
             raise MultilspyException(f"Language {config.code_language} is not supported")

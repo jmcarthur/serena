@@ -196,6 +196,31 @@ dmypy.json
 pylint.html
 .pylint.d
 
+# Haskell
+.stack-work/
+dist-newstyle/
+cabal-dev/
+*.o
+*.hi
+*.hie
+*.chi
+*.chs.h
+*.dyn_o
+*.dyn_hi
+.hpc
+.hsenv
+.cabal-sandbox/
+cabal.sandbox.config
+*.prof
+*.aux
+*.hp
+*.eventlog
+cabal.project.local
+cabal.project.local~
+.HTF/
+.ghc.environment.*
+.hie-bios/
+
 # Serena-specific
 /*.yml
 !*.template.yml

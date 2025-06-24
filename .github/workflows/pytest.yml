@@ -35,6 +35,33 @@ jobs:
       - name: Install gopls
         shell: bash
         run: go install golang.org/x/tools/gopls@latest
+      # Setup Haskell toolchain using official GitHub Action
+      - name: Set up Haskell
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: 'recommended'
+          cabal-version: 'latest'
+      # Install ghcup manually as the action doesn't expose it
+      - name: Install ghcup (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
+          echo "$HOME/.ghcup/bin" >> $GITHUB_PATH
+      
+      - name: Install ghcup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          Invoke-Command -ScriptBlock ([ScriptBlock]::Create((Invoke-WebRequest https://www.haskell.org/ghcup/sh/bootstrap-haskell.ps1 -UseBasicParsing))) -ArgumentList $false,$true,$true,$false,$false,$false,$false,"C:\ghcup"
+          echo "C:\ghcup\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install HLS
+        shell: bash
+        run: |
+          export PATH="$HOME/.ghcup/bin:/c/ghcup/bin:$PATH"
+          ghcup install hls recommended --set
       - name: Install uv
         shell: bash
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -53,6 +80,15 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: uv pip install -e ".[dev]"
+      - name: Configure Haskell test project
+        shell: bash
+        run: |
+          cd test/resources/repos/haskell/test_repo
+          # Update cabal package index
+          cabal update
+          # Configure the project (this creates necessary build files for HLS)
+          cabal configure
+          cd -
       - name: Test with pytest
         shell: bash
         run: uv run poe test
