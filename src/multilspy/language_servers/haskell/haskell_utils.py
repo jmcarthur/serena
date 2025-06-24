@@ -3,6 +3,9 @@ Shared utilities for Haskell language server implementations.
 Contains common functions and constants used by both multilspy and solidlsp.
 """
 
+import json
+import os
+import pathlib
 import shutil
 import subprocess
 
@@ -13,7 +16,7 @@ HASKELL_IGNORE_DIRS = [".stack-work", "dist-newstyle", ".hie-bios", ".cabal-sand
 def get_ghc_version() -> str | None:
     """Get the installed GHC version or None if not found."""
     try:
-        result = subprocess.run(['ghc', '--version'], capture_output=True, text=True, check=False)
+        result = subprocess.run(["ghc", "--version"], capture_output=True, text=True, check=False)
         if result.returncode == 0:
             return result.stdout.strip()
     except FileNotFoundError:
@@ -24,8 +27,7 @@ def get_ghc_version() -> str | None:
 def get_hls_version() -> str | None:
     """Get the installed HLS version or None if not found."""
     try:
-        result = subprocess.run(['haskell-language-server-wrapper', '--version'], 
-                              capture_output=True, text=True, check=False)
+        result = subprocess.run(["haskell-language-server-wrapper", "--version"], capture_output=True, text=True, check=False)
         if result.returncode == 0:
             return result.stdout.strip()
     except FileNotFoundError:
@@ -58,3 +60,36 @@ def check_hls_dependency() -> None:
 def is_haskell_ignored_dirname(dirname: str) -> bool:
     """Check if a directory should be ignored for Haskell projects."""
     return dirname in HASKELL_IGNORE_DIRS
+
+
+def get_haskell_initialize_params(repository_absolute_path: str, params_file_path: str) -> dict:
+    """
+    Returns the initialize params for the Haskell Language Server.
+
+    Args:
+        repository_absolute_path: Absolute path to the repository root
+        params_file_path: Path to the initialize_params.json file
+
+    Returns:
+        Dictionary with initialization parameters
+
+    """
+    with open(params_file_path, encoding="utf-8") as f:
+        d = json.load(f)
+
+    del d["_description"]
+
+    d["processId"] = os.getpid()
+    assert d["rootPath"] == "$rootPath"
+    d["rootPath"] = repository_absolute_path
+
+    assert d["rootUri"] == "$rootUri"
+    d["rootUri"] = pathlib.Path(repository_absolute_path).as_uri()
+
+    assert d["workspaceFolders"][0]["uri"] == "$uri"
+    d["workspaceFolders"][0]["uri"] = pathlib.Path(repository_absolute_path).as_uri()
+
+    assert d["workspaceFolders"][0]["name"] == "$name"
+    d["workspaceFolders"][0]["name"] = os.path.basename(repository_absolute_path)
+
+    return d

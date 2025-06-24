@@ -1,13 +1,12 @@
-import json
 import logging
 import os
-import pathlib
 import threading
 
 from overrides import override
 
 from multilspy.language_servers.haskell.haskell_utils import (
     check_hls_dependency,
+    get_haskell_initialize_params,
     get_hls_version,
     is_haskell_ignored_dirname,
 )
@@ -22,11 +21,10 @@ class HaskellLanguageServer(SolidLanguageServer):
     """
     Provides Haskell specific instantiation of the LanguageServer class using haskell-language-server.
     """
-    
+
     @override
     def is_ignored_dirname(self, dirname: str) -> bool:
         return super().is_ignored_dirname(dirname) or is_haskell_ignored_dirname(dirname)
-
 
     @classmethod
     def setup_runtime_dependencies(cls):
@@ -39,7 +37,7 @@ class HaskellLanguageServer(SolidLanguageServer):
 
     def __init__(self, config: MultilspyConfig, logger: MultilspyLogger, repository_root_path: str):
         self.setup_runtime_dependencies()
-        
+
         super().__init__(
             config,
             logger,
@@ -49,7 +47,7 @@ class HaskellLanguageServer(SolidLanguageServer):
         )
         self.request_id = 0
         self.server_ready = threading.Event()
-        
+
         # Log version information if available
         hls_version = get_hls_version()
         if hls_version:
@@ -59,28 +57,12 @@ class HaskellLanguageServer(SolidLanguageServer):
         """
         Returns the initialize params for the Haskell Language Server.
         """
-        with open(os.path.join(os.path.dirname(__file__), "initialize_params.json"), encoding="utf-8") as f:
-            d = json.load(f)
-
-        del d["_description"]
-
-        d["processId"] = os.getpid()
-        assert d["rootPath"] == "$rootPath"
-        d["rootPath"] = repository_absolute_path
-
-        assert d["rootUri"] == "$rootUri"
-        d["rootUri"] = pathlib.Path(repository_absolute_path).as_uri()
-
-        assert d["workspaceFolders"][0]["uri"] == "$uri"
-        d["workspaceFolders"][0]["uri"] = pathlib.Path(repository_absolute_path).as_uri()
-
-        assert d["workspaceFolders"][0]["name"] == "$name"
-        d["workspaceFolders"][0]["name"] = os.path.basename(repository_absolute_path)
-
-        return d
+        params_file_path = os.path.join(os.path.dirname(__file__), "initialize_params.json")
+        return get_haskell_initialize_params(repository_absolute_path, params_file_path)
 
     def _start_server(self):
         """Start haskell-language-server process"""
+
         def register_capability_handler(params):
             return
 
@@ -90,16 +72,16 @@ class HaskellLanguageServer(SolidLanguageServer):
         def progress_handler(params):
             """Handle $/progress notifications to detect when HLS is ready"""
             self.logger.log(f"LSP: $/progress: {params}", logging.INFO)
-            
+
             # Track progress tokens to understand what HLS is doing
             token = params.get("token", "")
             value = params.get("value", {})
             kind = value.get("kind", "")
             title = value.get("title", "")
             message = value.get("message", "")
-            
+
             self.logger.log(f"HLS Progress: token={token}, kind={kind}, title={title}, message={message}", logging.INFO)
-            
+
             # Look for completion signals
             # HLS sends progress notifications during startup
             if kind == "end":
@@ -111,10 +93,19 @@ class HaskellLanguageServer(SolidLanguageServer):
         def do_nothing(params):
             return
 
+        def check_experimental_status(params):
+            """
+            Also listen for experimental/serverStatus as a backup signal
+            """
+            if params.get("quiescent"):
+                self.logger.log("Received experimental/serverStatus with quiescent=true", logging.INFO)
+                self.server_ready.set()
+
         self.server.on_request("client/registerCapability", register_capability_handler)
         self.server.on_notification("window/logMessage", window_log_message)
         self.server.on_notification("$/progress", progress_handler)
         self.server.on_notification("textDocument/publishDiagnostics", do_nothing)
+        self.server.on_notification("experimental/serverStatus", check_experimental_status)
 
         self.logger.log("Starting haskell-language-server process", logging.INFO)
         self.server.start()
@@ -131,7 +122,7 @@ class HaskellLanguageServer(SolidLanguageServer):
         assert "definitionProvider" in init_response["capabilities"]
 
         self.server.notify.initialized({})
-        
+
         # Send workspace/didChangeConfiguration to disable unnecessary plugins
         self.logger.log("Configuring HLS plugins", logging.INFO)
         config_params = {
@@ -146,7 +137,7 @@ class HaskellLanguageServer(SolidLanguageServer):
             }
         }
         self.server.notify.workspace_did_change_configuration(config_params)
-        
+
         self.completions_available.set()
 
         # Wait for HLS to be ready with proper timeout
@@ -155,5 +146,3 @@ class HaskellLanguageServer(SolidLanguageServer):
             self.logger.log("HLS server is ready", logging.INFO)
         else:
             self.logger.log("Timeout waiting for HLS to become ready, proceeding anyway", logging.WARNING)
-            # Set ready anyway after timeout
-            self.server_ready.set()
